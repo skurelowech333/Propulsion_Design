@@ -108,6 +108,7 @@ class Mission:
         -------
         float
             Required propellant mass [kg]
+            
         """
         dv = delta_v if delta_v is not None else self.total_delta_v_required()
         

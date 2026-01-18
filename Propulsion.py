@@ -39,6 +39,8 @@ class Propulsion:
     def momentum_thrust(self):
         """
         Momentum thrust component: ṁ v_e
+        
+        Equation 1.1 (Humble, Henry, Larson)
         """
         self._require(mdot=self.mdot, ve=self.ve)
         return self.mdot * self.ve
@@ -48,6 +50,8 @@ class Propulsion:
         Pressure thrust component: (p_e − p_a) A_e
 
         Returns zero if pressure terms are undefined.
+        
+        Equation 1.5 (Humble, Henry, Larson)
         """
         if self.p_e is None or self.A_e is None:
             return 0.0
@@ -58,6 +62,8 @@ class Propulsion:
         Total thrust:
 
         T = η [ ṁ v_e + (p_e − p_a) A_e ]
+        
+        Equation 1.6 (Humble, Henry, Larson)
         """
         self._require(mdot=self.mdot, ve=self.ve)
         return self.eta * (self.momentum_thrust() + self.pressure_thrust())
@@ -67,6 +73,8 @@ class Propulsion:
         Specific impulse:
 
         Isp = T / (ṁ g₀)
+        
+        Equation 1.7 (Humble, Henry, Larson)
         """
         self._require(mdot=self.mdot)
         T = self.total_thrust()
@@ -77,6 +85,8 @@ class Propulsion:
         Effective exhaust velocity:
 
         c_eff = T / ṁ
+        
+        Equation 1.8 (Humble, Henry, Larson)
         """
         self._require(mdot=self.mdot)
         return self.total_thrust() / self.mdot

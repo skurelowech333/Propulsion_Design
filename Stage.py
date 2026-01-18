@@ -4,6 +4,7 @@ Created on Sun Jan 18 17:07:42 2026
 
 @author: Sarah
 """
+from math import log
 
 class Stage:
     """ 
@@ -63,3 +64,15 @@ class Stage:
             raise ValueError("Stage initial mass must be positive.")
 
         return self.engine.total_thrust() / (m0 * g0)
+    
+    def delta_v(self):
+        """
+        Compute Δv delivered by this stage.
+        """
+        if self.engine is None:
+            raise ValueError("Stage has no engine.")
+
+        isp = self.engine.specific_impulse()
+        m0 = self.initial_mass()
+        mf = self.final_mass()
+        return self.G0 * isp * log(m0 / mf)

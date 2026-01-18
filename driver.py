@@ -7,209 +7,153 @@ Created on Sun Jan 18 17:09:53 2026
 from Propulsion import Propulsion
 from Stage import Stage
 from Mission import Mission
-import matplotlib.pyplot as plt
+from LaunchVehicle import LaunchVehicle
 
+import itertools
 import numpy as np
 
-""" 
-Driver function for propulsion design analysis
-"""
+def clone_vehicle(vehicle):
+    """Deep copy a LaunchVehicle and its stages/engines."""
+    new_stages = []
+    for s in vehicle.stages:
+        new_engine = Propulsion(
+            mass_flow_rate=s.engine.mdot,
+            exit_velocity=s.engine.ve,
+            efficiency=s.engine.eta,
+            exit_pressure=s.engine.p_e,
+            ambient_pressure=s.engine.p_a,
+            exit_area=s.engine.A_e
+        )
+        new_stage = Stage(
+            engine=new_engine,
+            propellant_mass=s.m_prop,
+            dry_mass=s.m_dry,
+            payload_mass=s.m_payload
+        )
+        new_stages.append(new_stage)
+    return LaunchVehicle(new_stages)
 
-def vectorized_sweep(engine_template, stage_template, mission,
-                     ve_range, mdot_range):
+def evaluate_mission(vehicle, mission):
     """
-    Vectorized sweep of exhaust velocity and mass flow rate.
-
-    Parameters
-    ----------
-    engine_template : Propulsion
-        Template engine
-    stage_template : Stage
-        Stage with mass properties
-    mission : Mission
-        Mission requirements
-    ve_range : 1D array-like
-        Exhaust velocity values [m/s]
-    mdot_range : 1D array-like
-        Mass flow rate values [kg/s]
-
-    Returns
-    -------
-    dict
-        {
-            "ve": 2D array,
-            "mdot": 2D array,
-            "dv": 2D array,
-            "tw": 2D array,
-            "burn_time": 2D array,
-            "feasible": 2D boolean array
-        }
+    Evaluate an N-stage vehicle against a mission.
+    Returns per-stage metrics, total Δv, and overall feasibility.
     """
-    ve_grid, mdot_grid = np.meshgrid(ve_range, mdot_range, indexing='ij')
+    vehicle.stack_stages()  # ensure correct payload stacking
 
-    dv_grid = np.zeros_like(ve_grid, dtype=float)
-    tw_grid = np.zeros_like(ve_grid, dtype=float)
-    burn_grid = np.zeros_like(ve_grid, dtype=float)
-    feasible_grid = np.zeros_like(ve_grid, dtype=bool)
+    dv_total = 0.0
+    stage_results = []
 
-    m0 = stage_template.initial_mass()
-    mf = stage_template.final_mass()
+    for idx, stage in enumerate(vehicle.stages):
+        engine = stage.engine
+        m0 = stage.initial_mass()
+        mf = stage.final_mass()
+        isp = engine.specific_impulse()
+        thrust = engine.total_thrust()
+        burn_time = stage.burn_time()
+        dv = mission.achieved_delta_v(isp, m0, mf)
+        dv_total += dv
 
-    for i in range(ve_grid.shape[0]):
-        for j in range(ve_grid.shape[1]):
-            ve = ve_grid[i, j]
-            mdot = mdot_grid[i, j]
+        # Only Stage 1 T/W enforced
+        tw_ok = mission.thrust_to_weight_satisfied(thrust, m0) if idx == 0 else True
+        bt_ok = mission.burn_time_satisfied(burn_time)
 
-            # Create engine instance
-            engine = Propulsion(
-                mass_flow_rate=mdot,
-                exit_velocity=ve,
-                efficiency=engine_template.eta,
-                exit_pressure=engine_template.p_e,
-                ambient_pressure=engine_template.p_a,
-                exit_area=engine_template.A_e
-            )
+        stage_results.append({
+            "stage": idx + 1,
+            "dv": dv,
+            "thrust": thrust,
+            "Isp": isp,
+            "burn_time": burn_time,
+            "tw_ok": tw_ok,
+            "burn_time_ok": bt_ok
+        })
 
-            # Compute performance metrics
-            try:
-                thrust = engine.total_thrust()
-                isp = engine.specific_impulse()
-                burn_time = stage_template.m_prop / mdot
-                dv = mission.achieved_delta_v(isp, m0, mf)
-                tw = thrust / (m0 * 9.80665)
-            except ValueError:
-                dv = np.nan
-                tw = np.nan
-                burn_time = np.nan
+    dv_ok = dv_total >= mission.total_delta_v_required()
+    stage1_ok = stage_results[0]["tw_ok"] and stage_results[0]["burn_time_ok"]
+    upper_stages_ok = all(s["burn_time_ok"] for s in stage_results[1:])
+    mission_ok = dv_ok and stage1_ok and upper_stages_ok
 
-            # Save metrics
-            dv_grid[i, j] = dv
-            tw_grid[i, j] = tw
-            burn_grid[i, j] = burn_time
-
-            # Check feasibility
-            feasible = True
-            if np.isnan(dv) or dv < mission.total_delta_v_required():
-                feasible = False
-            if np.isnan(tw) or tw < mission.min_tw:
-                feasible = False
-            if mission.max_burn_time is not None and (np.isnan(burn_time) or burn_time > mission.max_burn_time):
-                feasible = False
-
-            feasible_grid[i, j] = feasible
+    # Debug prints
+    print(f"Total Δv achieved: {dv_total:.1f} m/s (required: {mission.total_delta_v_required():.1f} m/s)")
+    for s in stage_results:
+        tw = s["thrust"]/(s["dv"]/mission.G0 if s["dv"]>0 else 1)
+        print(f"Stage {s['stage']}: dv={s['dv']:.1f}, T/W OK={s['tw_ok']}, burn OK={s['burn_time_ok']}")
 
     return {
-        "ve": ve_grid,
-        "mdot": mdot_grid,
-        "dv": dv_grid,
-        "tw": tw_grid,
-        "burn_time": burn_grid,
-        "feasible": feasible_grid
-    }
-
-
-def evaluate_stage_mission(engine, stage, mission):
-    """
-    Evaluate a stage and engine against mission requirements.
-
-    Parameters
-    ----------
-    engine : PropulsionSystem
-        The engine instance
-    stage : Stage
-        The stage instance (propellant + dry + payload)
-    mission : Mission
-        Mission requirements (delta_v, T/W, burn time)
-
-    Returns
-    -------
-    dict
-        Dictionary containing metrics and feasibility checks
-    """
-    # Masses
-    m0 = stage.initial_mass()
-    mf = stage.final_mass()
-
-    # Burn time
-    try:
-        burn_time = stage.burn_time()
-    except ValueError as e:
-        burn_time = None
-
-    # Engine performance
-    try:
-        thrust = engine.total_thrust()
-        isp = engine.specific_impulse()
-    except ValueError as e:
-        thrust = None
-        isp = None
-
-    # Δv achieved
-    try:
-        dv_achieved = mission.achieved_delta_v(isp, m0, mf) if isp is not None else None
-    except ValueError as e:
-        dv_achieved = None
-
-    # Constraint checks
-    dv_ok = mission.delta_v_satisfied(isp, m0, mf) if dv_achieved is not None else False
-    tw_ok = mission.thrust_to_weight_satisfied(thrust, m0) if thrust is not None else False
-    bt_ok = mission.burn_time_satisfied(burn_time) if burn_time is not None else False
-    mission_ok = dv_ok and tw_ok and bt_ok
-
-    # Package results
-    results = {
-        "initial_mass": m0,
-        "final_mass": mf,
-        "burn_time": burn_time,
-        "thrust": thrust,
-        "Isp": isp,
-        "achieved_delta_v": dv_achieved,
-        "delta_v_ok": dv_ok,
-        "thrust_to_weight_ok": tw_ok,
-        "burn_time_ok": bt_ok,
+        "stages": stage_results,
+        "dv_total": dv_total,
         "mission_satisfied": mission_ok
     }
 
-    return results
+def n_stage_engine_sweep(vehicle_template, mission, stage_sweeps):
+    """
+    Sweep engine parameters for all stages.
+    Returns list of feasible designs.
+    """
+    assert len(stage_sweeps) == len(vehicle_template.stages)
 
-# Engine template
-engine_template = Propulsion(
-    efficiency=0.95,
-    exit_pressure=101325,
-    ambient_pressure=0.0,
-    exit_area=0.2
-)
+    # Build Cartesian product of engine parameter choices
+    sweep_grids = [list(itertools.product(s["ve"], s["mdot"])) for s in stage_sweeps]
 
-# Stage template
-stage_template = Stage(
-    engine=engine_template,
-    propellant_mass=2000,
-    dry_mass=800,
-    payload_mass=500
-)
+    feasible_designs = []
 
-# Mission
+    for engine_choices in itertools.product(*sweep_grids):
+        vehicle = clone_vehicle(vehicle_template)
+
+        for i, (ve, mdot) in enumerate(engine_choices):
+            vehicle.stages[i].engine.ve = ve
+            vehicle.stages[i].engine.mdot = mdot
+
+        results = evaluate_mission(vehicle, mission)
+
+        if results["mission_satisfied"]:
+            feasible_designs.append({
+                "engine_choices": engine_choices,
+                "results": results
+            })
+
+    return feasible_designs
+
+# ----------------------------
+# Build vehicle
+# ----------------------------
+engine1 = Propulsion(mass_flow_rate=35, exit_velocity=4000, efficiency=0.95)
+engine2 = Propulsion(mass_flow_rate=8,  exit_velocity=3600, efficiency=0.96)
+engine3 = Propulsion(mass_flow_rate=3,  exit_velocity=3800, efficiency=0.97)
+
+stage1 = Stage(engine1, propellant_mass=6000, dry_mass=900, payload_mass=0.0)
+stage2 = Stage(engine2, propellant_mass=2500, dry_mass=350, payload_mass=0.0)
+stage3 = Stage(engine3, propellant_mass=1000, dry_mass=150, payload_mass=500)
+
+vehicle_template = LaunchVehicle([stage1, stage2, stage3])
+
+# ----------------------------
+# Define mission
+# ----------------------------
 mission = Mission(
-    delta_v_required=4500,
-    min_thrust_to_weight=1.2,
-    max_burn_time=400,
-    gravity_loss=300,
-    margin=0.1
+    delta_v_required=6000,  # achievable with stacked propellant
+    min_thrust_to_weight=0.8,
+    max_burn_time=450,
+    gravity_loss=0,  # for testing
+    margin=0.05
 )
 
-# Sweep ranges (choose higher mdot and ve to satisfy T/W)
-ve_range = np.linspace(3200, 3800, 7)   # m/s
-mdot_range = np.linspace(8, 15, 8)      # kg/s
+# ----------------------------
+# Sweep ranges for engines
+# ----------------------------
+stage_sweeps = [
+    {"ve": np.linspace(3800, 4200, 3), "mdot": np.linspace(28, 35, 3)},
+    {"ve": np.linspace(3700, 4000, 3), "mdot": np.linspace(8, 10, 3)},
+    {"ve": np.linspace(3800, 4200, 3), "mdot": np.linspace(3, 4, 2)}
+]
 
+# ----------------------------
 # Run sweep
-results = vectorized_sweep(engine_template, stage_template, mission, ve_range, mdot_range)
+# ----------------------------
+feasible_designs = n_stage_engine_sweep(vehicle_template, mission, stage_sweeps)
 
-# Plot feasible designs
-plt.figure(figsize=(8,6))
-plt.contourf(results["ve"], results["mdot"], results["feasible"], levels=[0,0.5,1],
-             colors=["lightcoral","lightgreen"])
-plt.xlabel("Exhaust Velocity [m/s]")
-plt.ylabel("Mass Flow Rate [kg/s]")
-plt.title("Feasible Engine Designs (green = feasible)")
-plt.colorbar(label="Feasible")
-plt.show()
+print(f"\nFound {len(feasible_designs)} feasible designs\n")
+
+for d in feasible_designs:
+    print("Engine choices (ve, mdot):", d["engine_choices"])
+    print("Total Δv:", d["results"]["dv_total"])
+    print("---")

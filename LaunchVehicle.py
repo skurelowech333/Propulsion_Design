@@ -23,14 +23,14 @@ class LaunchVehicle:
     # ----------------------------
     # Mass stacking logic
     # ----------------------------
-    def stack_masses(self):
-        """
-        Assign payload mass of each stage to include all upper stages.
-        """
-        upper_mass = 0.0
-        for stage in reversed(self.stages):
-            stage.m_payload = stage.m_payload + upper_mass
-            upper_mass = stage.initial_mass()
+    def stack_stages(self):
+        """Add upper stage masses as payload to lower stages."""
+        for i in range(len(self.stages)-2, -1, -1):
+            upper_payload = sum(
+                s.m_prop + s.m_dry + s.m_payload
+                for s in self.stages[i+1:]
+            )
+            self.stages[i].m_payload += upper_payload
 
     # ----------------------------
     # Performance
