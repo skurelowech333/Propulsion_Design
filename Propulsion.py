@@ -6,11 +6,9 @@ Propulsion Design Toolbox (Guarded State-Based System)
 """
 
 class Propulsion:
-    """
-    Represents a propulsion system with possibly unknown parameters.
-
-    Unknown quantities may be set to None and will be checked
-    before use in any computation.
+    """ 
+    All equations and infomration derived from:
+        edited by Ronald W. Humble, Gary N. Henry, Wiley J. Larson. Space Propulsion Analysis and Design. New York :McGraw-Hill, 2007.
     """
 
     G0 = 9.80665  # Standard gravity [m/s^2]

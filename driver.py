@@ -11,6 +11,10 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
+""" 
+Driver function for propulsion design analysis
+"""
+
 def vectorized_sweep(engine_template, stage_template, mission,
                      ve_range, mdot_range):
     """

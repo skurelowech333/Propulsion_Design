@@ -7,16 +7,18 @@ Mission Requirements Model
 
 import math
 
-
 class Mission:
     """
     Represents mission-level requirements for propulsion design.
 
     This class does NOT know about engines or hardware.
     It only encodes what the mission requires.
+    
+    All equations and infomration derived from:
+        edited by Ronald W. Humble, Gary N. Henry, Wiley J. Larson. Space Propulsion Analysis and Design. New York :McGraw-Hill, 2007.
     """
 
-    G0 = 9.80665  # m/s^2
+    G0 = 9.80665  # Standard gravity [m/s^2]
 
     def __init__(self,
                  delta_v_required,
@@ -86,3 +88,34 @@ class Mission:
         if self.max_burn_time is None:
             return True
         return burn_time <= self.max_burn_time
+    
+    def propellant_for_delta_v(self, isp, dry_mass, payload_mass, delta_v=None):
+        """
+        Compute required propellant mass to achieve a specified Δv.
+
+        Parameters
+        ----------
+        isp : float
+            Engine specific impulse [s]
+        dry_mass : float
+            Stage dry mass [kg]
+        payload_mass : float
+            Payload mass [kg]
+        delta_v : float, optional
+            Desired Δv [m/s]. If None, uses mission total Δv required.
+
+        Returns
+        -------
+        float
+            Required propellant mass [kg]
+        """
+        dv = delta_v if delta_v is not None else self.total_delta_v_required()
+        
+        if isp <= 0:
+            raise ValueError("Isp must be positive.")
+
+        m0_without_prop = dry_mass + payload_mass
+        # Solve Tsiolkovsky equation for propellant mass
+        # m0 = mf + m_prop = m0_without_prop + m_prop
+        m_prop = m0_without_prop * (math.exp(dv / (self.G0 * isp)) - 1)
+        return m_prop

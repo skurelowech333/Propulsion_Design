@@ -6,6 +6,13 @@ Created on Sun Jan 18 17:07:42 2026
 """
 
 class Stage:
+    """ 
+    All equations and infomration derived from:
+        edited by Ronald W. Humble, Gary N. Henry, Wiley J. Larson. Space Propulsion Analysis and Design. New York :McGraw-Hill, 2007.
+    """
+    
+    G0 = 9.80665  # Standard gravity [m/s^2]
+    
     def __init__(self, engine, propellant_mass, dry_mass, payload_mass=0.0):
         """
         Parameters
@@ -24,9 +31,6 @@ class Stage:
         self.m_dry = dry_mass
         self.m_payload = payload_mass
 
-    # ----------------------------
-    # Mass properties
-    # ----------------------------
     def initial_mass(self):
         """Initial mass at start of burn [kg]"""
         return self.m_prop + self.m_dry + self.m_payload
@@ -35,9 +39,6 @@ class Stage:
         """Final mass at end of burn [kg]"""
         return self.m_dry + self.m_payload
 
-    # ----------------------------
-    # Burn properties
-    # ----------------------------
     def burn_time(self):
         """
         Compute burn time [s].
